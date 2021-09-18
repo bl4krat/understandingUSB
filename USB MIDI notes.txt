@@ -1,0 +1,173 @@
+Universal Serial Bus Device Class Definition for MIDI Devices
+
+(Based on official documentation of the same name, Release 1.0, Nov 1999)
+
+Overview
+========
+
+The universal serial bus runs at hundreds of times faster than the MIDI 1.0
+standard. The USB-MIDI spec is written to enable many 'virtual cables' of MIDI
+data concurrently as well as ensuring compatability with all MIDI equipment
+through a single generic driver. MIDI data is parsed into 32-bit messages abd
+transferred transparently over USB without any changes.
+
+Definitions
+===========
+
+The USB Spec uses some words in non-typical ways, and some concepts are
+out-of-scope for this document:
+
+  * Device   - A physical or logical entity that performs a function. The
+               phrase can also include USB hubs. Useage depends on the context. 
+			   
+  * Function - A USB device that provides a capability to the host.
+  
+  * Transfer Type        - USB uses 4 schemes for managing data flow between a
+                           software client and it's function. The endpoint's
+						   descriptor defines which transfer type it uses. 
+
+  * Control Transfer     - A USB device will likely have at least one control
+                           pipe (default pipe) to provide access to config,
+						   status and control info. Has error detection and
+						   retries take place without involvement of the
+						   driver.
+
+  * Interrupt Transfer   - For small amounts of data, polled periodically.
+                           Typically used for keyboard, mouse, etc.
+
+  * Isochronous Transfer - Guaranteed bandwidth transfers (a certain number of
+                           bytes in the USB frame are reserved). There is
+						   error detection, but no retry. Intended for video /
+						   audio streams, etc. 
+
+  * Bulk Transfer        - Guaranteed error-free using error detection &
+                           retries. Uses the remaining available bandwidth.
+
+
+Functional
+==========
+
+The MIDIStreaming interface represents the whole of the "USB-MIDI Function" and
+is a subclass of the Audio interface class.
+
+Each "Audio Function" has precisely ONE AudioControl (AC) interface and can have
+several AudioStreaming (AS) and MIDIStreaming (MS) interfaces. A MIDIStreaming
+interface is used to transport USB-MIDI data into and out of the "audio function".
+
+The collection of the single AC interface and all of the AS and MS interfaces
+that belong to a single "audio function" is called the Audio Interface Collection
+(AIC).
+
+
+"USB-MIDI Function" Topology
+============================
+All "USB-MIDI functions" must contain ONE USB-MIDI converter and may contain a
+number of "Entities", which can be:
+	* External MIDI jacks (physical MIDI connection), and/or 
+	* Embedded MIDI jacks (which represent a USB-MIDI endpoint), and/or
+	* "Elements".
+	
+An "Element" is an engine which:
+	* interprets MIDI data streams and generates an audio stream, or
+	* interprets audio streams and generates a MIDI data stream, or 
+	* interprets MIDI data streams and generates another MIDI data stream.
+	
+Each element can have 1 or more Input Pins and 1 or more Output Pins. Each pin
+carries a single MIDI data stream.
+
+The specification also allows for asyncronous transfer of large data sets by
+DLS (the Downloadable Sounds standard). Decicated transfer endpoints are
+used for this purpose.
+
+An Element is identified by it's ElementID.
+
+MIDI jacks can be one of two types:
+	* MIDI IN  - The starting point for a MIDI data stream, or
+	* MIDI OUT - The ending point for a MIDI data stream.
+	
+MIDI data streams enter the USB-MIDI function through a MIDI IN jack, and they
+leave through a MIDI OUT jack.
+
+A jack is uniquely identified by it's JackID.
+
+MIDI IN jacks have a single output pin. 
+MIDI OUT jacks can have multiple input pins. The jack will merge data streams
+into a single MIDI data stream.
+
+Entities (Jacks and Elements) are wired together by connecting their input /
+output pins to the required topology.
+
+Input pins are numbered 1 to the total number of input pins on the Entity.
+Output pins are numbered 1 to the total number of output pins on the Entity.
+
+Every Entity on the USB-MIDI function is fully described by its Entity
+Descriptor. Each Entity on the USB-MIDI function is assigned a unique EntityID,
+which is contained in the bJackID or bElementID field of the descriptor. The
+value 0x00 id reserved for 'undefined ID', limiting the number of addressable
+entities (including all jacks and elements) to 255
+
+The ID's also describe the topology:
+* the baSourceID() array of a jack or element descriptor shows which other
+entities this entities input pins are connected to.
+* the baSourcePIN() array of a jack or element descriptor shows to which
+output pin of the other entity this entities input pins are connected.
+ 	
+The ensemble of Element and MIDI jack descriptors provide a full
+description of the USB-MIDI function to the host. A generic MIDI driver should
+be able to fully control the USB-MIDI function.
+
+
+                                          ^
+									      |
+                                         USB
+									      |
+                                          v
+--------------------------------------------------------------------------------------
+|                                 USB-MIDI Converter                                 |
+|                                                                                    |
+|  -------------------  -------------------  ------------------  ------------------  |
+|  |MIDI OUT Endpoint|  |XFER OUT Endpoint|  |XFER IN Endpoint|  |MIDI IN Endpoint|  |
+|  -------------------  -------------------  ------------------  ------------------  |
+|           |                    |                    |                   |          |
+|  -------------------  -------------------  ------------------  ------------------  |
+|  |MIDI OUT Endpoint|  |XFER OUT Endpoint|  |XFER IN Endpoint|  |MIDI IN Endpoint|  |
+|  -------------------  -------------------  ------------------  ------------------  |
+|                                                                                    |
+|                   ---------------------------------------------                    |
+|                   | ----------------------------------------- |                    |
+|                   | |                                       | |                    |
+|                  /---\             -----------          >--/---\                   |
+| Embedded MIDI IN |   |-->       >--|         |-->       >--|   | Embedded MIDI OUT |
+|                  \---/          >--|Element 1|-->       >--\---/                   |
+|				    | |           >--|         |-->           | |                    |
+|                  /---\             -----------          >--/---\                   |
+| Embedded MIDI IN |   |-->               |               >--|   | Embedded MIDI OUT |
+|                  \---/                  |               >--\---/                   |
+|                   | |              -----------              | |                    |
+--------------------- |           >--|         |-->           | ----------------------
+                      |           >--|Element 2|-->           |
+                      |           >--|         |-->           |
+                   /---\             -----------          >--/---\
+  External MIDI IN |   |-->               |               >--|   | External MIDI OUT
+                   \---/                  |               >--\---/
+                      |                   |                   | |
+                   /---\                  |               >--/---\
+  External MIDI IN |   |-->          -----------          >--|   | External MIDI OUT
+                   \---/          >--|         |-->       >--\---/
+                      |           >--|Element n|-->           |
+                      |           >--|         |-->           |
+                      |              -----------              |
+                      |                                       |
+					  |           USB-MIDI Function           |
+					  -----------------------------------------
+
+Key:
+
+         /---\
+         |   |    MIDI Jack        -->    Output pin        >--    Input pin
+         \---/
+
+
+
+
+
